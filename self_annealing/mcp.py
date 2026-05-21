@@ -10,6 +10,12 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from self_annealing import memory, health
+from self_annealing.safety import verify_command
+from self_annealing.audit import audit_large_files
+from self_annealing.dependencies import check_dependencies
+from self_annealing.git_helper import suggest_commit_message
+from self_annealing.pipeline import run_preflight_checks
+from self_annealing.doc_search import search_docs
 
 # Create the FastMCP server instance
 mcp = FastMCP("self-annealing")
@@ -155,6 +161,96 @@ def anneal_list() -> str:
     for entry in entries:
         output.append(f"E{entry['id']} | {entry['context'].ljust(10)} | {entry['symptom']}")
         
+    return "\n".join(output)
+
+@mcp.tool()
+def anneal_verify_cmd(command: str) -> str:
+    """
+    Verifies if a command is destructive and checks for unstaged changes.
+    """
+    passed, message = verify_command(command)
+    if passed:
+        return f"[✓] verified safe: {message}"
+    else:
+        return f"[✗] SAFETY WARNING: {message}"
+
+@mcp.tool()
+def anneal_audit() -> str:
+    """
+    Audits project for large files (>100KB) that are not matched in .gitignore.
+    """
+    large_files = audit_large_files(str(Path.cwd()))
+    if not large_files:
+        return "[✓] No non-gitignored large files (>100KB) found."
+        
+    output = [f"Found {len(large_files)} non-gitignored large files (>100KB):"]
+    for lf in large_files:
+        size_kb = lf['size'] / 1024
+        output.append(f"  - {lf['path']} ({size_kb:.1f} KB)")
+        output.append(f"    Warning: {lf['warning']}")
+    return "\n".join(output)
+
+@mcp.tool()
+def anneal_check_deps() -> str:
+    """
+    Checks for dependency mismatches or missing packages declared in requirements.txt or pyproject.toml.
+    """
+    warnings = check_dependencies(str(Path.cwd()))
+    if not warnings:
+        return "[✓] All dependencies are satisfied."
+    
+    output = ["Dependency mismatches or missing packages found:"]
+    for w in warnings:
+        output.append(f"  ✗ {w}")
+    return "\n".join(output)
+
+@mcp.tool()
+def anneal_commit_msg() -> str:
+    """
+    Suggests a Git commit message based on the recent error memory log entry.
+    """
+    return suggest_commit_message(str(Path.cwd()))
+
+@mcp.tool()
+def anneal_preflight() -> str:
+    """
+    Runs local CI/CD pre-flight checks (linting/formatting validation).
+    """
+    results = run_preflight_checks(str(Path.cwd()))
+    if not results:
+        return "No supported CI/CD tools (black, ruff, flake8, mypy, isort, pylint) detected/installed."
+        
+    output = []
+    passed_all = True
+    for tool, passed, msg in results:
+        if passed:
+            output.append(f"[✓] {tool}: Passed")
+        else:
+            passed_all = False
+            output.append(f"[✗] {tool}: Failed")
+            indented = "\n".join("    " + line for line in msg.splitlines())
+            output.append(indented)
+            
+    if passed_all:
+        output.insert(0, "[✓] All pre-flight checks passed successfully.")
+    else:
+        output.insert(0, "[✗] Some pre-flight checks failed.")
+    return "\n".join(output)
+
+@mcp.tool()
+def anneal_search_docs(query: str) -> str:
+    """
+    Searches project Markdown documentation files for keyword matches.
+    """
+    results = search_docs(str(Path.cwd()), query)
+    if not results:
+        return "No documentation matches found."
+        
+    output = []
+    for res in results:
+        output.append(f"{res['file']} (score: {res['score']})")
+        output.append(f"  Snippet: ...{res['snippet']}...")
+        output.append("")
     return "\n".join(output)
 
 if __name__ == "__main__":

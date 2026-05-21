@@ -12,6 +12,25 @@ from self_annealing.memory import (
     list_all
 )
 from self_annealing.health import run_all_checks
+from self_annealing.safety import verify_command
+from self_annealing.audit import audit_large_files
+from self_annealing.dependencies import check_dependencies
+from self_annealing.git_helper import suggest_commit_message
+from self_annealing.pipeline import run_preflight_checks
+from self_annealing.doc_search import search_docs
+def check_unicode_support():
+    try:
+        "✓".encode(sys.stdout.encoding or 'ascii')
+        return True
+    except Exception:
+        return False
+
+HAS_UNICODE = check_unicode_support()
+
+CHECK_MARK = "[✓]" if HAS_UNICODE else "[OK]"
+CROSS_MARK = "[✗]" if HAS_UNICODE else "[FAIL]"
+BULLET_CROSS = "✗" if HAS_UNICODE else "x"
+
 
 def handle_init():
     cwd = Path.cwd()
@@ -103,15 +122,9 @@ def handle_health():
         passed, message = checks[check_id]
         if passed:
             passed_count += 1
-            try:
-                print(f"{Fore.GREEN}[✓] {check_id}: {check_names[check_id]}{Style.RESET_ALL}")
-            except UnicodeEncodeError:
-                print(f"{Fore.GREEN}[PASSED] {check_id}: {check_names[check_id]}{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}{CHECK_MARK} {check_id}: {check_names[check_id]}{Style.RESET_ALL}")
         else:
-            try:
-                print(f"{Fore.RED}[✗] {check_id}: {check_names[check_id]}{Style.RESET_ALL}")
-            except UnicodeEncodeError:
-                print(f"{Fore.RED}[FAILED] {check_id}: {check_names[check_id]}{Style.RESET_ALL}")
+            print(f"{Fore.RED}{CROSS_MARK} {check_id}: {check_names[check_id]}{Style.RESET_ALL}")
             # print error details indented
             indented = "\n".join("    " + line for line in message.splitlines())
             print(f"{Fore.RED}{indented}{Style.RESET_ALL}")
@@ -159,6 +172,74 @@ def handle_list():
     for entry in entries:
         print(f"{Fore.GREEN}{entry['id']}{Style.RESET_ALL} | {Fore.CYAN}{entry['context']:<10}{Style.RESET_ALL} | {Fore.WHITE}{entry['symptom']}{Style.RESET_ALL}")
 
+def handle_verify_cmd(args):
+    passed, message = verify_command(args.cmd)
+    if passed:
+        print(Fore.GREEN + f"{CHECK_MARK} Command verified safe: {message}" + Style.RESET_ALL)
+    else:
+        print(Fore.RED + f"{CROSS_MARK} Safety Warning: {message}" + Style.RESET_ALL)
+        sys.exit(1)
+
+def handle_audit():
+    print("Auditing project for large non-gitignored files...")
+    large_files = audit_large_files(str(Path.cwd()))
+    if not large_files:
+        print(Fore.GREEN + f"{CHECK_MARK} No non-gitignored large files (>100KB) found." + Style.RESET_ALL)
+    else:
+        print(Fore.YELLOW + f"Found {len(large_files)} non-gitignored large files (>100KB):" + Style.RESET_ALL)
+        for lf in large_files:
+            size_kb = lf['size'] / 1024
+            print(f"  - {Fore.RED}{lf['path']}{Style.RESET_ALL} ({size_kb:.1f} KB)")
+            print(f"    {Fore.WHITE}{lf['warning']}{Style.RESET_ALL}")
+
+def handle_check_deps():
+    print("Checking package dependencies...")
+    warnings = check_dependencies(str(Path.cwd()))
+    if not warnings:
+        print(Fore.GREEN + f"{CHECK_MARK} All dependencies are satisfied." + Style.RESET_ALL)
+    else:
+        print(Fore.YELLOW + "Dependency mismatches or missing packages found:" + Style.RESET_ALL)
+        for warning in warnings:
+            print(f"  {Fore.RED}{BULLET_CROSS} {warning}{Style.RESET_ALL}")
+
+def handle_commit_msg():
+    print("Generating suggested commit message...")
+    suggestion = suggest_commit_message(str(Path.cwd()))
+    print("\n--- Suggested Commit Message ---")
+    print(Fore.GREEN + suggestion + Style.RESET_ALL)
+    print("---------------------------------")
+
+def handle_preflight():
+    print("Running CI/CD pre-flight checks...")
+    results = run_preflight_checks(str(Path.cwd()))
+    if not results:
+        print(Fore.BLUE + "No supported CI/CD tools (black, ruff, flake8, mypy, isort, pylint) detected/installed." + Style.RESET_ALL)
+        return
+    
+    passed_all = True
+    for tool, passed, output in results:
+        if passed:
+            print(Fore.GREEN + f"{CHECK_MARK} {tool}: Passed" + Style.RESET_ALL)
+        else:
+            passed_all = False
+            print(Fore.RED + f"{CROSS_MARK} {tool}: Failed" + Style.RESET_ALL)
+            indented = "\n".join("    " + line for line in output.splitlines())
+            print(Fore.RED + indented + Style.RESET_ALL)
+    
+    if not passed_all:
+        sys.exit(1)
+
+def handle_search_docs(args):
+    print(f"Searching docs for: '{args.query}'...")
+    results = search_docs(str(Path.cwd()), args.query)
+    if not results:
+        print(Fore.YELLOW + "No documentation matches found." + Style.RESET_ALL)
+        return
+        
+    for res in results:
+        print(f"\n{Fore.GREEN}{res['file']}{Style.RESET_ALL} (score: {Fore.BLUE}{res['score']}{Style.RESET_ALL})")
+        print(f"  Snippet: ...{res['snippet']}...")
+
 def main():
     init(autoreset=True)
     
@@ -193,6 +274,26 @@ def main():
     # List subcommand
     subparsers.add_parser("list", help="List all recorded errors (excluding templates)")
     
+    # Verify-cmd subcommand
+    verify_cmd_parser = subparsers.add_parser("verify-cmd", help="Intercept and verify a shell command for safety")
+    verify_cmd_parser.add_argument("cmd", help="The command line string to verify")
+    
+    # Audit subcommand
+    subparsers.add_parser("audit", help="Audit project for large files that should be gitignored")
+    
+    # Check-deps subcommand
+    subparsers.add_parser("check-deps", help="Check for dependency mismatches or missing packages")
+    
+    # Commit-msg subcommand
+    subparsers.add_parser("commit-msg", help="Suggest a commit message based on recent fix memory")
+    
+    # Preflight subcommand
+    subparsers.add_parser("preflight", help="Run local CI/CD pre-flight checks (linters, formatters)")
+    
+    # Search-docs subcommand
+    search_docs_parser = subparsers.add_parser("search-docs", help="Perform local keyword search across project Markdown documentation")
+    search_docs_parser.add_argument("query", help="Keyword search query")
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -211,6 +312,18 @@ def main():
         handle_stats()
     elif args.command == "list":
         handle_list()
+    elif args.command == "verify-cmd":
+        handle_verify_cmd(args)
+    elif args.command == "audit":
+        handle_audit()
+    elif args.command == "check-deps":
+        handle_check_deps()
+    elif args.command == "commit-msg":
+        handle_commit_msg()
+    elif args.command == "preflight":
+        handle_preflight()
+    elif args.command == "search-docs":
+        handle_search_docs(args)
 
 if __name__ == "__main__":
     main()
