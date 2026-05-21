@@ -99,5 +99,44 @@ Output:
 - Anyone using AI agents for coding
 - Solo developers managing multiple projects
 
+## 🛠️ MCP Server Integration
+
+`self-annealing` includes a built-in **Model Context Protocol (MCP)** server so you can connect its tools directly to clients like **Claude Desktop**, **Cursor**, or **Antigravity**.
+
+### Tools Exposed via MCP:
+- `anneal_init`: Initialize error memory and rules in the project workspace.
+- `anneal_search(query_symptom, query_context)`: Query error history.
+- `anneal_health`: Run project diagnostics.
+- `anneal_log(entry_id, symptom, cause, fix, context, tokens)`: Log a new fix.
+- `anneal_stats`: View token-saving and entry statistics.
+- `anneal_list`: List logged errors.
+
+### Configuration
+
+#### Claude Desktop
+Add this to your `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "self-annealing": {
+      "command": "python",
+      "args": [
+        "-m",
+        "self_annealing.mcp"
+      ]
+    }
+  }
+}
+```
+*(Make sure to run this in the environment where the package is installed, or add its folder to `PYTHONPATH` in the config)*
+
+#### Cursor
+Go to **Settings -> Features -> MCP**, click **+ Add New MCP Server**:
+- **Name**: `self-annealing`
+- **Type**: `command`
+- **Command**: `python -m self_annealing.mcp`
+
+---
+
 ## License
 MIT
