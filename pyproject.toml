@@ -16,6 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "colorama>=0.4.6",
+    "mcp>=1.0.0",
 ]
 
 [project.scripts]
