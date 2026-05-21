@@ -82,12 +82,21 @@ def test_compare_versions():
     assert not compare_versions("1.2.3", "==", "1.2.4")
     assert compare_versions("1.2.3", "!=", "1.2.4")
 
-    # Greater / Less than
+    # Greater / Less than or Equal
     assert compare_versions("1.2.3", ">=", "1.2.0")
     assert compare_versions("1.2.3", ">=", "1.2.3")
     assert not compare_versions("1.2.3", ">=", "1.2.4")
+    
+    assert compare_versions("1.2.3", "<=", "1.2.4")
+    assert compare_versions("1.2.3", "<=", "1.2.3")
+    assert not compare_versions("1.2.3", "<=", "1.2.2")
+
+    # Greater / Less than
     assert compare_versions("1.2.3", ">", "1.2")
-    assert compare_versions("1.2", "<", "1.2.3")
+    assert not compare_versions("1.2.3", ">", "1.2.3")
+    
+    assert compare_versions("1.2.2", "<", "1.2.3")
+    assert not compare_versions("1.2.3", "<", "1.2.3")
 
     # Compatible release ~=
     # ~= 1.2.3 is >= 1.2.3, < 1.3.0

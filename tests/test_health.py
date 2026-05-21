@@ -134,3 +134,9 @@ def test_check_hc005_secret_scanner(tmp_path):
     passed, msg = check_hc005(project_dir)
     assert passed is False
     assert "Generic secret" in msg
+
+    # High-entropy raw key leak without regex matches
+    (project_dir / "app.py").write_text("random_data = 'aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0'", encoding='utf-8')
+    passed, msg = check_hc005(project_dir)
+    assert passed is False
+    assert "High-entropy secret" in msg

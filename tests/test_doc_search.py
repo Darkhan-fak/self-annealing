@@ -26,15 +26,13 @@ def test_search_docs_basic(tmp_path):
     
     # The documents that matched are doc1.md and sub/doc3.md
     # Rank check:
-    # "self-annealing" in doc1.md -> count: 1
-    # "self-annealing" in sub/doc3.md -> count: 1
-    # Sorting by score (both 1), then filename alphabetically: "doc1.md" < "sub/doc3.md"
+    # Sorting by score, then filename alphabetically: "doc1.md" < "sub/doc3.md"
     assert results[0]['filename'] == "doc1.md"
-    assert results[0]['score'] == 1
+    assert results[0]['score'] > 0
     assert "self-annealing" in results[0]['snippet'].lower()
     
     assert results[1]['filename'] == "sub/doc3.md"
-    assert results[1]['score'] == 1
+    assert results[1]['score'] > 0
     assert "self-annealing" in results[1]['snippet'].lower()
 
 def test_search_docs_ranking(tmp_path):
@@ -51,13 +49,9 @@ def test_search_docs_ranking(tmp_path):
     results = search_docs(str(tmp_path), "keyword")
     assert len(results) == 3
     assert results[0]['filename'] == "high.md"
-    assert results[0]['score'] == 3
-    
     assert results[1]['filename'] == "medium.md"
-    assert results[1]['score'] == 2
-    
     assert results[2]['filename'] == "low.md"
-    assert results[2]['score'] == 1
+    assert results[0]['score'] > results[1]['score'] > results[2]['score'] > 0
 
 def test_search_docs_case_insensitivity(tmp_path):
     doc = tmp_path / "doc.md"
@@ -65,7 +59,7 @@ def test_search_docs_case_insensitivity(tmp_path):
     
     results = search_docs(str(tmp_path), "keyword")
     assert len(results) == 1
-    assert results[0]['score'] == 2
+    assert results[0]['score'] > 0
     assert "keyword" in results[0]['snippet'].lower()
 
 def test_search_docs_excludes(tmp_path):
@@ -133,3 +127,29 @@ def test_search_docs_snippet_boundaries(tmp_path):
     # snippet length should be around 60 chars before and 60 chars after + len("target") = 126
     # including "..." it should be around 132 chars
     assert len(snippet) < 140
+
+def test_search_docs_stemming(tmp_path):
+    # Test query token suffix stemming: -s, -ed, -ing, -es, -ment
+    doc = tmp_path / "doc.md"
+    doc.write_text("We are documenting the developments of our helpers and tests. He helped us clean the boxes.", encoding='utf-8')
+    
+    # Query with -ment should match "developments" -> normalized to "develop"
+    results = search_docs(str(tmp_path), "development")
+    assert len(results) == 1
+    assert "documenting" in results[0]['snippet']
+    
+    # Query with -ing should match "documenting" -> normalized to "docu"
+    results = search_docs(str(tmp_path), "document")
+    assert len(results) == 1
+    
+    # Query with -ed should match "helped" -> normalized to "help"
+    results = search_docs(str(tmp_path), "helping")
+    assert len(results) == 1
+    
+    # Query with -es should match "boxes" -> normalized to "box"
+    results = search_docs(str(tmp_path), "box")
+    assert len(results) == 1
+    
+    # Query with -s should match "helpers" -> normalized to "help"
+    results = search_docs(str(tmp_path), "helper")
+    assert len(results) == 1

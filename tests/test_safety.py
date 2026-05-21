@@ -74,3 +74,58 @@ def test_destructive_command_git_missing():
         assert success is True
         assert msg == "Command verified safe."
         mock_run.assert_called_once()
+
+def test_chained_safety_checks():
+    # Test that shell operators split commands and catch destructive actions in any part
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=" M file.py\n", stderr="", returncode=0)
+        
+        # Destructive command at the end of a chain
+        success, msg = verify_command("ls -la && git clean")
+        assert success is False
+        
+        # Destructive command at the start of a chain
+        success, msg = verify_command("git reset --hard || echo 'reset failed'")
+        assert success is False
+        
+        # Destructive command in the middle
+        success, msg = verify_command("echo 'hello'; rm -rf tmp/; echo 'done'")
+        assert success is False
+
+def test_nested_subshell_safety_checks():
+    # Test nested command execution / subshells
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="?? untracked.py\n", stderr="", returncode=0)
+        
+        # $(...) subshell containing destructive command
+        success, msg = verify_command("echo $(rm -rf /tmp/test)")
+        assert success is False
+        
+        # `...` subshell containing destructive command
+        success, msg = verify_command("echo `git clean`")
+        assert success is False
+        
+        # Nested subshells
+        success, msg = verify_command("echo $(echo `rm -rf /`)")
+        assert success is False
+
+def test_tokenization_and_false_positives():
+    # Test that false positives (e.g. echo rm -rf) are avoided, and bypasses are caught
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=" M file.py\n", stderr="", returncode=0)
+        
+        # False positive: rm -rf is an argument to echo, not the executable
+        success, msg = verify_command("echo rm -rf")
+        assert success is True
+        
+        # Bypasses: space separation and flag combinations
+        success, msg = verify_command("rm -r -f dir")
+        assert success is False
+        
+        # Path prefix bypasses
+        success, msg = verify_command("/usr/bin/rm -rf dir")
+        assert success is False
+        
+        success, msg = verify_command("git.exe clean")
+        assert success is False
+

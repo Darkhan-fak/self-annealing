@@ -93,9 +93,55 @@ def check_hc004(project_root):
         return True, "requirements.txt or pyproject.toml exists."
     return False, "Neither requirements.txt nor pyproject.toml was found in project root."
 
+def calculate_shannon_entropy(s: str) -> float:
+    """
+    Calculates the Shannon Entropy of a string.
+    """
+    if not s:
+        return 0.0
+    import math
+    from collections import Counter
+    total_len = len(s)
+    counts = Counter(s)
+    entropy = 0.0
+    for count in counts.values():
+        p = count / total_len
+        entropy -= p * math.log2(p)
+    return entropy
+
+def extract_potential_secrets(line: str, is_env: bool) -> list[str]:
+    """
+    Extracts potential secrets from a line:
+    - Quoted string literals (single/double quotes)
+    - For .env files, the RHS of assignments (stripped and unquoted)
+    """
+    secrets = []
+    # 1. Match quoted strings
+    quoted_pattern = re.compile(r'(?:"([^"\\]*(?:\\.[^"\\]*)*)"|\'([^\'\\]*(?:\\.[^\'\\]*)*)\')')
+    for match in quoted_pattern.finditer(line):
+        val = match.group(1) or match.group(2)
+        if val:
+            secrets.append(val)
+            
+    # 2. In .env files, check the RHS of '='
+    if is_env and '=' in line:
+        parts = line.split('=', 1)
+        val = parts[1].strip()
+        # strip comment
+        val_no_comment = val.split('#', 1)[0].strip()
+        # strip quotes if any
+        if (val_no_comment.startswith('"') and val_no_comment.endswith('"')) or \
+           (val_no_comment.startswith("'") and val_no_comment.endswith("'")):
+            val_no_comment = val_no_comment[1:-1]
+        if val_no_comment:
+            secrets.append(val_no_comment)
+            
+    return list(set(secrets))
+
 def check_hc005(project_root):
     """
     HC005: Scan for hardcoded API keys and secrets in .py and .env files.
+    Includes regex checking and Shannon Entropy calculation for raw key strings.
     """
     anthropic_pattern = re.compile(r'sk-ant-sid\d+-[a-zA-Z0-9_\-]{80,}')
     openai_pattern = re.compile(r'sk-[a-zA-Z0-9]{48,}')
@@ -119,22 +165,34 @@ def check_hc005(project_root):
                 with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                     for line_num, line in enumerate(f, 1):
                         line_str = line.strip()
-                        # Check Anthropic
+                        relative_path = file_path.relative_to(project_root)
+                        
+                        # 1. Check Anthropic
                         if anthropic_pattern.search(line_str):
-                            relative_path = file_path.relative_to(project_root)
                             violations.append(f"Anthropic API key in {relative_path}:{line_num}")
                             continue
                             
-                        # Check OpenAI
+                        # 2. Check OpenAI
                         if openai_pattern.search(line_str):
-                            relative_path = file_path.relative_to(project_root)
                             violations.append(f"OpenAI API key in {relative_path}:{line_num}")
                             continue
                             
-                        # Check Generic secret
+                        # 3. Check Generic secret
                         if generic_pattern.search(line_str):
-                            relative_path = file_path.relative_to(project_root)
                             violations.append(f"Generic secret in {relative_path}:{line_num}")
+                            continue
+                            
+                        # 4. Check Shannon Entropy for high-entropy strings
+                        potential_secrets = extract_potential_secrets(line_str, is_env)
+                        found_entropy_violation = False
+                        for secret in potential_secrets:
+                            if len(secret) > 20:
+                                entropy = calculate_shannon_entropy(secret)
+                                if entropy > 4.5:
+                                    violations.append(f"High-entropy secret ({entropy:.2f}) in {relative_path}:{line_num}")
+                                    found_entropy_violation = True
+                                    break
+                        if found_entropy_violation:
                             continue
             except Exception:
                 pass
