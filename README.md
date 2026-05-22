@@ -44,6 +44,49 @@ anneal health
 anneal search "connection refused" --context "database"
 ```
 
+## Console Showcase
+
+Here is how `self-annealing` looks in action:
+
+### 1. Project Health Audit (`anneal health`)
+```ansi
+$ anneal health
+Running health checks in project root: /workspace
+
+[FAIL] HC001: PORT binding check
+    Hardcoded port binding found without env configuration in:
+      self_annealing/health.py:10
+[OK]   HC002: .env in .gitignore check
+[FAIL] HC003: .env file existence and example check
+    .env file is missing.
+[OK]   HC004: requirements.txt / pyproject.toml check
+[FAIL] HC005: Secret scanner check
+    Hardcoded secrets found:
+      High-entropy secret (4.85) in self_annealing/health.py:148
+
+2/5 checks passed
+```
+
+### 2. Command Safety Verification (`anneal verify-cmd`)
+```ansi
+# If you have unstaged changes, dangerous commands are blocked:
+$ anneal verify-cmd "rm -rf tmp"
+[FAIL] Warning: Running destructive command with unstaged changes. Please commit or stash your changes first.
+
+# If the repo is clean or the command is safe:
+$ anneal verify-cmd "ls -la"
+[OK] Command verified safe: Command verified safe.
+```
+
+### 3. Local Documentation Search (`anneal search-docs`)
+```ansi
+$ anneal search-docs "relevance"
+Searching docs for: 'relevance'...
+
+README.md (score: 0.902384)
+  Snippet: ......Searches and ranks error log memory by relevance (`HIGH`......
+```
+
 ## Commands
 
 | Command | Usage | Description |
