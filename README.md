@@ -48,6 +48,8 @@ anneal search "connection refused" --context "database"
 
 Here is how `self-annealing` looks in action:
 
+![self-annealing in action](assets/self_annealing_demo.png)
+
 ### 1. Project Health Audit (`anneal health`)
 ```ansi
 $ anneal health
